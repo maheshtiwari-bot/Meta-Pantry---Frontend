@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist)",
+      "Bash(netstat -ano)",
+      "Bash(sleep 2 && tail -10 /tmp/frontend.log)",
+      "Read(//tmp/**)",
+      "Bash(npm install *)",
+      "Bash(npm ls *)",
+      "Bash(npm audit *)",
+      "Bash(npx eslint *)",
+      "Bash(node server.js)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5000/api/sites)",
+      "Bash(curl -s \"http://localhost:5000/api/sites/1/sub-storages\")",
+      "Bash(curl -s \"http://localhost:5000/api/stock?siteId=1&subStorageId=1\")",
+      "Bash(curl -s \"http://localhost:5000/api/stock/history?siteId=1\")",
+      "Bash(curl -s \"http://localhost:5000/api/sites/1/distribute-board\")",
+      "Bash(curl -s -X POST http://localhost:5000/api/stock -H \"Content-Type: application/json\" -d '{\"siteId\":1,\"subStorageId\":1,\"person\":\"Test User\",\"items\":[{\"product\":\"Sleepy Owl Cold Brew\",\"category\":\"Cold Coffee\",\"subCategory\":\"Cold Brew\",\"count\":10}]}')",
+      "Bash(curl -s -X POST http://localhost:5000/api/distribute -H \"Content-Type: application/json\" -d '{\"siteId\":1,\"allocations\":[{\"product\":\"Epigamia Greek Yogurt\",\"subStorageId\":4,\"qty\":5}]}')",
+      "Bash(curl -s \"http://localhost:5000/api/stock?siteId=1&subStorageId=all\")"
+    ]
+  }
+}

@@ -18,12 +18,12 @@ const C = {
 };
 
 // ─── Role → Tabs ───────────────────────────────────────────────────────────
-const ALL_TABS = ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Vendiman Dashboard","Client Approvals","Orders","Admin"];
+const ALL_TABS = ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Vendiman Dashboard","Client Approvals","Orders","Reports","Admin"];
 const ROLE_TABS = {
   admin:           ALL_TABS,
-  client:          ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Client Approvals"],
-  clientApprover:  ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Client Approvals"],
-  vendiman:        ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Vendiman Dashboard","Orders"],
+  client:          ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Client Approvals","Reports"],
+  clientApprover:  ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Client Approvals","Reports"],
+  vendiman:        ["Dashboard","Stock Inward","Stock Update","Product Performance","Forecast","Vendiman Dashboard","Orders","Reports"],
 };
 
 // ─── Shared styles ─────────────────────────────────────────────────────────
@@ -38,8 +38,8 @@ const card = { background:C.card, borderRadius:16, padding:"18px 16px", border:`
 
 const STATUS_COLORS = {
   Critical: { color:C.red, background:C.redBg },
-  Healthy:  { color:C.green, background:C.greenBg },
-  Excessive:{ color:C.blue, background:C.blueBg },
+  Optimal:  { color:C.green, background:C.greenBg },
+  Surplus:  { color:C.blue, background:C.blueBg },
   "Pending Approval": { color:C.amber, background:C.amberBg },
   Approved: { color:C.green, background:C.greenBg },
   Rejected: { color:C.red, background:C.redBg },
@@ -140,8 +140,8 @@ function Dashboard({ sites, statusDefs }) {
     { label:"Total Stock Value", value:`₹${Number(data.totalStockValue).toLocaleString("en-IN")}`, color:C.blue },
     { label:"Days of Stock", value:data.avgDaysOfStock, color:C.blue },
     { label:"Critical Stocks", value:data.criticalCount, color:C.red },
-    { label:"Healthy Stocks", value:data.healthyCount, color:C.green },
-    { label:"Excessive Stocks", value:data.excessiveCount, color:C.indigo },
+    { label:"Optimal Stocks", value:data.optimalCount, color:C.green },
+    { label:"Surplus Stocks", value:data.surplusCount, color:C.indigo },
   ] : [];
 
   return (
@@ -193,7 +193,7 @@ function Dashboard({ sites, statusDefs }) {
                     <td style={td}>₹{r.mrp}</td>
                     <td style={{ ...td, fontWeight:600 }}>{r.availableQty}</td>
                     <td style={td}>{r.preferredDays}</td>
-                    <td style={{ ...td, fontWeight:600, color:r.status==="Critical"?C.red:r.status==="Excessive"?C.blue:C.green }}>
+                    <td style={{ ...td, fontWeight:600, color:r.status==="Critical"?C.red:r.status==="Surplus"?C.blue:C.green }}>
                       {r.availableDays??"-"}
                     </td>
                     <td style={td}><Pill label={r.status}/></td>
@@ -406,8 +406,10 @@ function StockUpdate({ sites, showToast, currentUser }) {
   const [siteId, setSiteId] = useState("");
   const [rows, setRows] = useState([]);
   const [history, setHistory] = useState([]);
-  const [confirm, setConfirm] = useState(null); // {productCode, newQty, newDays}
-  const [editDays, setEditDays] = useState({}); // productCode → overrideValue
+  const [confirm, setConfirm] = useState(null);
+  const [editDays, setEditDays] = useState({});
+
+  useEffect(()=>{ if(sites.length && !siteId) setSiteId(String(sites[0].id)); }, [sites]);
 
   const loadRows = (sid) => {
     fetch(`${API_BASE}/stock-update?siteId=${sid}`).then(r=>r.json()).then(d=>{ setRows(d); const ed={}; d.forEach(r=>{ if(r.preferredDaysOverride!=null) ed[r.productCode]=r.preferredDaysOverride; }); setEditDays(ed); }).catch(()=>{});
@@ -527,6 +529,8 @@ function ProductPerformance({ sites, showToast }) {
   const [editQpd, setEditQpd] = useState({});
   const [saving, setSaving] = useState({});
 
+  useEffect(()=>{ if(sites.length && !siteId) setSiteId(String(sites[0].id)); }, [sites]);
+
   const load = (sid) => {
     fetch(`${API_BASE}/product-performance?siteId=${sid}`).then(r=>r.json()).then(d=>{ setRows(d); const e={}; d.forEach(r=>{ if(r.qtyPerDay!=null) e[r.productCode]=r.qtyPerDay; }); setEditQpd(e); }).catch(()=>{});
   };
@@ -599,32 +603,52 @@ function ProductPerformance({ sites, showToast }) {
 function Forecast({ sites, showToast, currentUser }) {
   const [siteId, setSiteId] = useState("");
   const [rows, setRows] = useState([]);
-  const [orderItems, setOrderItems] = useState(null); // null | [{...}]
-  const [orderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
+  const [orderItems, setOrderItems] = useState(null);
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const [showManual, setShowManual] = useState(false);
+  const [manualItems, setManualItems] = useState([{ productCode:"", productName:"", qty:0, mrp:0 }]);
+  const newOrderId = `ORD-${Date.now().toString(36).toUpperCase()}`;
 
-  const load = (sid) => fetch(`${API_BASE}/forecast?siteId=${sid}`).then(r=>r.json()).then(setRows).catch(()=>{});
+  useEffect(()=>{ if(sites.length && !siteId) setSiteId(String(sites[0].id)); }, [sites]);
+
+  const load = (sid) => {
+    fetch(`${API_BASE}/forecast?siteId=${sid}`).then(r=>r.json()).then(setRows).catch(()=>{});
+    fetch(`${API_BASE}/orders?siteId=${sid}`).then(r=>r.json()).then(d=>setPendingOrders(d.filter(o=>o.status==="Pending Approval"))).catch(()=>{});
+  };
   useEffect(()=>{ if(siteId) load(siteId); }, [siteId]);
 
+  const pendingProductCodes = new Set(pendingOrders.flatMap(o=>(o.items||[]).map(it=>it.productCode)));
+
   const autoGenerate = () => {
-    const critical = rows.filter(r=>r.status==="Critical"&&r.orderQty>0).map(r=>({...r, editQty:r.orderQty}));
-    if (!critical.length) { showToast("No critical products to order"); return; }
-    setOrderItems(critical);
+    const critical = rows.filter(r=>r.status==="Critical"&&r.orderQty>0).map(r=>({...r,editQty:r.orderQty}));
+    if (!critical.length) { showToast("No Critical products to order"); return; }
+    const dups = critical.filter(r=>pendingProductCodes.has(r.productCode));
+    if (dups.length) {
+      showToast(`⚠ ${dups.map(d=>d.productCode).join(", ")} already have a pending order`);
+      const safe = critical.filter(r=>!pendingProductCodes.has(r.productCode));
+      if (!safe.length) return;
+      setOrderItems(safe);
+    } else {
+      setOrderItems(critical);
+    }
   };
 
   const updateOrderQty = (code, val) => setOrderItems(prev=>prev.map(it=>it.productCode===code?{...it,editQty:Number(val)}:it));
   const removeOrderItem = (code) => setOrderItems(prev=>prev.filter(it=>it.productCode!==code));
 
-  const sendForApproval = () => {
-    const items = orderItems.filter(it=>it.editQty>0).map(it=>({ productCode:it.productCode, productName:it.productName, brand:it.brand, qty:it.editQty, mrp:it.mrp }));
-    if (!items.length) { showToast("No items to send"); return; }
-    fetch(`${API_BASE}/orders`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ id:orderId, siteId:Number(siteId), placedBy:currentUser.loginId, items, status:"Pending Approval" }) })
-      .then(()=>{ showToast(`Order ${orderId} sent for approval`); setOrderItems(null); })
+  const sendForApproval = (items, oid) => {
+    const filtered = items.filter(it=>it.editQty>0||it.qty>0).map(it=>({ productCode:it.productCode, productName:it.productName||it.productCode, brand:it.brand||"", qty:it.editQty||it.qty||0, mrp:it.mrp||0 }));
+    if (!filtered.length) { showToast("No items to send"); return; }
+    fetch(`${API_BASE}/orders`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ id:oid||newOrderId, siteId:Number(siteId), placedBy:currentUser.loginId, items:filtered, status:"Pending Approval" }) })
+      .then(()=>{ showToast(`Order sent for approval`); setOrderItems(null); setShowManual(false); setManualItems([{ productCode:"",productName:"",qty:0,mrp:0 }]); load(siteId); })
       .catch(()=>showToast("Could not reach backend"));
   };
 
-  const exportExcel = () => {
-    dlExcel(rows.map(r=>({ "Product Code":r.productCode, "Product Name":r.productName, Brand:r.brand, Category:r.category, "Sub Category":r.subCategory, MRP:r.mrp, "Available Qty":r.availableQty, "Preferred Days":r.preferredDays, "Available Days":r.availableDays??"-", Status:r.status, "Order Qty":r.orderQty||0 })), "forecast.xlsx");
-  };
+  const exportExcel = () => dlExcel(rows.map(r=>({ "Product Code":r.productCode,"Product Name":r.productName,Brand:r.brand,Category:r.category,"Sub Category":r.subCategory,MRP:r.mrp,"Available Qty":r.availableQty,"Preferred Days":r.preferredDays,"Available Days":r.availableDays??"-",Status:r.status,"Order Qty":r.orderQty||0 })),"forecast.xlsx");
+
+  const updateManual = (i,f,v) => setManualItems(prev=>prev.map((it,idx)=>idx===i?{...it,[f]:v}:it));
+  const addManualRow = () => setManualItems(prev=>[...prev,{ productCode:"",productName:"",qty:0,mrp:0 }]);
+  const removeManualRow = (i) => setManualItems(prev=>prev.filter((_,idx)=>idx!==i));
 
   return (
     <div>
@@ -632,44 +656,76 @@ function Forecast({ sites, showToast, currentUser }) {
         <SectionHeader title="FORECAST" action={
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             <select style={{ ...smInput, width:180 }} value={siteId} onChange={e=>setSiteId(e.target.value)}>
-              <option value="">Select site</option>
               {sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            {siteId && <><button style={{ ...btn(true), fontSize:12, padding:"7px 12px" }} onClick={autoGenerate}>⚡ Auto Generate Order</button>
-            <button style={{ ...btn(false), fontSize:12, padding:"7px 12px" }} onClick={exportExcel}>⬇ Excel</button></>}
+            {siteId && <>
+              <button style={{ ...btn(true), fontSize:12, padding:"7px 12px" }} onClick={autoGenerate}>⚡ Auto Generate Order</button>
+              <button style={{ ...btn(false), fontSize:12, padding:"7px 12px" }} onClick={()=>setShowManual(m=>!m)}>✏ Manual Order</button>
+              <button style={{ ...btn(false), fontSize:12, padding:"7px 12px" }} onClick={exportExcel}>⬇ Excel</button>
+            </>}
           </div>
         }/>
-        {siteId ? (
-          <div style={{ overflowX:"auto" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:700 }}>
-              <thead><tr>{["Product Code","Product Name","Brand","Category","Sub Category","MRP","Avail. Qty","Pref. Days","Avail. Days","Status","Order Qty"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+        {pendingOrders.length>0 && (
+          <div style={{ padding:"8px 12px", background:C.amberBg, borderRadius:8, marginBottom:12, fontSize:12, color:C.amber }}>
+            ⚠ {pendingOrders.length} pending order(s) for this site. Products already on order are highlighted.
+          </div>
+        )}
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", minWidth:700 }}>
+            <thead><tr>{["Product Code","Product Name","Brand","Category","Sub Category","MRP","Avail. Qty","Pref. Days","Avail. Days","Status","Order Qty"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((r,i)=>(
+                <tr key={r.productCode} style={{ ...trAlt(i), opacity:pendingProductCodes.has(r.productCode)?0.55:1 }}>
+                  <td style={td}>{r.productCode}{pendingProductCodes.has(r.productCode)&&<span style={{ fontSize:9, color:C.amber, marginLeft:4 }}>ON ORDER</span>}</td>
+                  <td style={{ ...td, fontWeight:600 }}>{r.productName}</td>
+                  <td style={td}>{r.brand}</td>
+                  <td style={td}><Tag label={r.category}/></td>
+                  <td style={td}>{r.subCategory}</td>
+                  <td style={td}>₹{r.mrp}</td>
+                  <td style={{ ...td, fontWeight:600 }}>{r.availableQty}</td>
+                  <td style={td}>{r.preferredDays}</td>
+                  <td style={{ ...td, color:r.status==="Critical"?C.red:r.status==="Surplus"?C.blue:C.green, fontWeight:600 }}>{r.availableDays??"-"}</td>
+                  <td style={td}><Pill label={r.status}/></td>
+                  <td style={{ ...td, fontWeight:700, color:r.orderQty>0?C.amber:C.sub }}>{r.orderQty||"-"}</td>
+                </tr>
+              ))}
+              {rows.length===0 && <tr><td colSpan={11} style={{ ...td, color:C.sub }}>No data. Add stock and performance data first.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Manual Order */}
+      {showManual && !orderItems && (
+        <div className="pd-card" style={{ ...card, border:`1px solid ${C.green}` }}>
+          <SectionHeader title="CREATE MANUAL ORDER" action={<button style={{ ...btn(false), fontSize:12, padding:"6px 12px" }} onClick={()=>setShowManual(false)}>Cancel</button>}/>
+          <div style={{ overflowX:"auto", marginBottom:12 }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Product Code","Product Name","Qty","MRP",""].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
-                {rows.map((r,i)=>(
-                  <tr key={r.productCode} style={trAlt(i)}>
-                    <td style={td}>{r.productCode}</td>
-                    <td style={{ ...td, fontWeight:600 }}>{r.productName}</td>
-                    <td style={td}>{r.brand}</td>
-                    <td style={td}><Tag label={r.category}/></td>
-                    <td style={td}>{r.subCategory}</td>
-                    <td style={td}>₹{r.mrp}</td>
-                    <td style={{ ...td, fontWeight:600 }}>{r.availableQty}</td>
-                    <td style={td}>{r.preferredDays}</td>
-                    <td style={{ ...td, color:r.status==="Critical"?C.red:r.status==="Excessive"?C.blue:C.green, fontWeight:600 }}>{r.availableDays??"-"}</td>
-                    <td style={td}><Pill label={r.status}/></td>
-                    <td style={{ ...td, fontWeight:700, color:r.orderQty>0?C.amber:C.sub }}>{r.orderQty||"-"}</td>
+                {manualItems.map((it,i)=>(
+                  <tr key={i}>
+                    <td style={td}><input style={{ ...cellInput, width:120 }} value={it.productCode} onChange={e=>updateManual(i,"productCode",e.target.value)} placeholder="Code"/></td>
+                    <td style={td}><input style={{ ...cellInput, width:160 }} value={it.productName} onChange={e=>updateManual(i,"productName",e.target.value)} placeholder="Name"/></td>
+                    <td style={td}><input type="number" min={0} style={{ ...cellInput, width:80 }} value={it.qty} onChange={e=>updateManual(i,"qty",Number(e.target.value))}/></td>
+                    <td style={td}><input type="number" min={0} style={{ ...cellInput, width:80 }} value={it.mrp} onChange={e=>updateManual(i,"mrp",Number(e.target.value))}/></td>
+                    <td style={td}><button style={{ border:`1px solid ${C.redBg}`, background:"#fff", color:C.red, borderRadius:8, padding:"5px 8px", cursor:"pointer" }} onClick={()=>removeManualRow(i)}>✕</button></td>
                   </tr>
                 ))}
-                {rows.length===0 && <tr><td colSpan={11} style={{ ...td, color:C.sub }}>No data. Add stock and performance data first.</td></tr>}
               </tbody>
             </table>
           </div>
-        ) : <div style={{ padding:"16px", color:C.sub, fontSize:13 }}>Select a site to view forecast.</div>}
-      </div>
+          <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
+            <button style={{ ...btn(false), fontSize:12 }} onClick={addManualRow}>+ Add Row</button>
+            <button style={btn(true)} onClick={()=>sendForApproval(manualItems.map(it=>({...it,editQty:it.qty})),newOrderId)}>Send for Approval</button>
+          </div>
+        </div>
+      )}
 
-      {/* Order panel */}
+      {/* Auto-generated order panel */}
       {orderItems && (
         <div className="pd-card" style={{ ...card, border:`1px solid ${C.indigo}` }}>
-          <SectionHeader title={`ORDER — ${orderId}`} sub="Review and edit quantities before sending for approval"
+          <SectionHeader title={`ORDER — ${newOrderId}`} sub="Review quantities before sending for approval"
             action={<button style={{ ...btn(false), fontSize:12, padding:"6px 12px" }} onClick={()=>setOrderItems(null)}>Discard</button>}/>
           <div style={{ overflowX:"auto", marginBottom:14 }}>
             <table style={{ width:"100%", borderCollapse:"collapse" }}>
@@ -688,8 +744,8 @@ function Forecast({ sites, showToast, currentUser }) {
             </table>
           </div>
           <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-            <button style={{ ...btn(false), fontSize:12, padding:"7px 12px" }} onClick={()=>dlExcel(orderItems.map(it=>({ "Order ID":orderId,"Product Code":it.productCode,"Product Name":it.productName,MRP:it.mrp,"Order Qty":it.editQty })),"order.xlsx")}>⬇ Excel</button>
-            <button style={btn(true)} onClick={sendForApproval}>Send for Approval</button>
+            <button style={{ ...btn(false), fontSize:12, padding:"7px 12px" }} onClick={()=>dlExcel(orderItems.map(it=>({ "Order ID":newOrderId,"Product Code":it.productCode,"Product Name":it.productName,MRP:it.mrp,"Order Qty":it.editQty })),"order.xlsx")}>⬇ Excel</button>
+            <button style={btn(true)} onClick={()=>sendForApproval(orderItems,newOrderId)}>Send for Approval</button>
           </div>
         </div>
       )}
@@ -754,7 +810,7 @@ function VendimanDashboard({ sites, showToast }) {
                   <td style={td}>{r.brand}</td>
                   <td style={td}><Tag label={r.category}/></td>
                   <td style={td}>{r.availableQty}</td>
-                  <td style={{ ...td, color:r.status==="Critical"?C.red:r.status==="Excessive"?C.blue:C.green }}>{r.availableDays??"-"}</td>
+                  <td style={{ ...td, color:r.status==="Critical"?C.red:r.status==="Surplus"?C.blue:C.green }}>{r.availableDays??"-"}</td>
                   <td style={td}><Pill label={r.status}/></td>
                   <td style={{ ...td, fontWeight:600 }}>{whData[r.productCode]??"-"}</td>
                 </tr>
@@ -769,61 +825,103 @@ function VendimanDashboard({ sites, showToast }) {
 }
 
 // ─── Client Approvals ─────────────────────────────────────────────────────
-function ClientApprovals({ showToast, currentUser }) {
-  const [orders, setOrders] = useState([]);
+function ClientApprovals({ showToast, currentUser, sites }) {
+  const [pending, setPending] = useState([]);
+  const [approved, setApproved] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [feedback, setFeedback] = useState({});
+  const [editQtys, setEditQtys] = useState({}); // orderId → {productCode → qty}
 
-  const load = () => fetch(`${API_BASE}/orders`).then(r=>r.json()).then(d=>setOrders(d.filter(o=>o.status==="Pending Approval"||o.status==="Feedback"))).catch(()=>{});
+  const load = () => {
+    fetch(`${API_BASE}/orders`).then(r=>r.json()).then(all=>{
+      setPending(all.filter(o=>o.status==="Pending Approval"||o.status==="Feedback"));
+      setApproved(all.filter(o=>o.status==="Approved"||o.status==="Rejected"));
+    }).catch(()=>{});
+  };
   useEffect(()=>{ load(); }, []);
 
-  const update = (id, status, fb) => {
-    fetch(`${API_BASE}/orders/${id}`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ status, feedback:fb||"" }) })
-      .then(()=>{ showToast(`Order ${status}`); load(); }).catch(()=>showToast("Could not reach backend"));
+  const siteName = (id) => sites.find(s=>s.id===id)?.name||`Site ${id}`;
+
+  const update = (id, status, fb, items) => {
+    const payload = { status, feedback:fb||"", approvedBy:status==="Approved"?currentUser.loginId:undefined };
+    if (items) payload.items = items;
+    fetch(`${API_BASE}/orders/${id}`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) })
+      .then(()=>{ showToast(`Order ${status}`); load(); setExpanded(null); }).catch(()=>showToast("Could not reach backend"));
+  };
+
+  const approveWithEdits = (o) => {
+    const qmap = editQtys[o.id]||{};
+    const updatedItems = o.items.map(it=>({ ...it, qty:Number(qmap[it.productCode]??it.qty) }));
+    update(o.id,"Approved","",updatedItems);
   };
 
   const canApprove = currentUser.role==="admin"||currentUser.role==="clientApprover";
 
+  const OrderCard = ({ o, i, showActions }) => (
+    <div key={o.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, marginBottom:12, overflow:"hidden" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8, padding:"12px 14px", background:i%2===0?C.panel:"#fff" }}>
+        <div>
+          <div style={{ fontWeight:700, fontSize:14 }}>{o.id}</div>
+          <div style={{ fontSize:12, color:C.sub }}>
+            Requestor: {o.placedBy} · Site: {siteName(o.siteId)} · {new Date(o.createdAt).toLocaleDateString("en-IN")}
+            {o.approvedBy && ` · Approved by: ${o.approvedBy}`}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          <Pill label={o.status}/>
+          <button style={{ ...btn(false), fontSize:12, padding:"6px 10px" }} onClick={()=>setExpanded(expanded===o.id?null:o.id)}>{expanded===o.id?"Hide":"View"}</button>
+          {showActions && canApprove && <>
+            <button style={{ ...btn(true), fontSize:12, padding:"6px 10px" }} onClick={()=>approveWithEdits(o)}>Approve</button>
+            <button style={{ ...btn(false), fontSize:12, padding:"6px 10px", color:C.red }} onClick={()=>update(o.id,"Rejected","")}>Reject</button>
+          </>}
+        </div>
+      </div>
+      {expanded===o.id && (
+        <div style={{ padding:"14px" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", marginBottom:10 }}>
+            <thead><tr>{["Product Code","Product Name",showActions&&canApprove?"Edit Qty":"Qty","MRP"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>{o.items?.map((it,j)=>(
+              <tr key={it.productCode} style={trAlt(j)}>
+                <td style={td}>{it.productCode}</td>
+                <td style={{ ...td,fontWeight:600 }}>{it.productName}</td>
+                <td style={td}>
+                  {showActions && canApprove
+                    ? <input type="number" min={0} style={{ ...cellInput, width:80 }}
+                        value={editQtys[o.id]?.[it.productCode]??it.qty}
+                        onChange={e=>setEditQtys(p=>({ ...p,[o.id]:{ ...(p[o.id]||{}), [it.productCode]:e.target.value } }))}/>
+                    : it.qty}
+                </td>
+                <td style={td}>₹{it.mrp}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {showActions && canApprove && (
+            <div style={{ marginTop:8 }}>
+              <div style={{ fontSize:12, color:C.sub, marginBottom:6 }}>Give Feedback</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input style={{ ...inputStyle, flex:1 }} value={feedback[o.id]||""} onChange={e=>setFeedback(p=>({...p,[o.id]:e.target.value}))} placeholder="Add comment…"/>
+                <button style={btn(false)} onClick={()=>update(o.id,"Feedback",feedback[o.id])}>Send Feedback</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div>
       <div className="pd-card" style={card}>
-        <SectionHeader title="CLIENT APPROVALS" sub="Orders pending review" />
-        {orders.length===0
+        <SectionHeader title="PENDING APPROVALS" sub={`${pending.length} order(s) awaiting review`}/>
+        {pending.length===0
           ? <div style={{ padding:"16px", color:C.sub, fontSize:13 }}>No orders pending approval.</div>
-          : orders.map((o,i)=>(
-            <div key={o.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, marginBottom:12, overflow:"hidden" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8, padding:"12px 14px", background:i%2===0?C.panel:"#fff" }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:14 }}>{o.id}</div>
-                  <div style={{ fontSize:12, color:C.sub }}>Site ID: {o.siteId} · Placed by: {o.placedBy} · {new Date(o.createdAt).toLocaleDateString("en-IN")}</div>
-                </div>
-                <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                  <Pill label={o.status}/>
-                  <button style={{ ...btn(false), fontSize:12, padding:"6px 10px" }} onClick={()=>setExpanded(expanded===o.id?null:o.id)}>{expanded===o.id?"Hide":"View"} Order</button>
-                  {canApprove && <><button style={{ ...btn(true), fontSize:12, padding:"6px 10px" }} onClick={()=>update(o.id,"Approved","")}>Approve</button>
-                  <button style={{ ...btn(false), fontSize:12, padding:"6px 10px", color:C.red }} onClick={()=>update(o.id,"Rejected","")}>Reject</button></>}
-                </div>
-              </div>
-              {expanded===o.id && (
-                <div style={{ padding:"14px" }}>
-                  <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                    <thead><tr>{["Product Code","Product Name","Qty","MRP"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-                    <tbody>{o.items?.map((it,j)=><tr key={it.productCode} style={trAlt(j)}><td style={td}>{it.productCode}</td><td style={{ ...td,fontWeight:600 }}>{it.productName}</td><td style={td}>{it.qty}</td><td style={td}>₹{it.mrp}</td></tr>)}</tbody>
-                  </table>
-                  {canApprove && (
-                    <div style={{ marginTop:12 }}>
-                      <div style={{ fontSize:12, color:C.sub, marginBottom:6 }}>Give Feedback</div>
-                      <div style={{ display:"flex", gap:8 }}>
-                        <input style={{ ...inputStyle, flex:1 }} value={feedback[o.id]||""} onChange={e=>setFeedback(p=>({...p,[o.id]:e.target.value}))} placeholder="Add feedback comment…"/>
-                        <button style={btn(false)} onClick={()=>update(o.id,"Feedback",feedback[o.id])}>Send Feedback</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))
-        }
+          : pending.map((o,i)=><OrderCard key={o.id} o={o} i={i} showActions={true}/>)}
+      </div>
+      <div className="pd-card" style={card}>
+        <SectionHeader title="APPROVED / REJECTED HISTORY" sub="All completed approvals"/>
+        {approved.length===0
+          ? <div style={{ padding:"16px", color:C.sub, fontSize:13 }}>No approved/rejected orders yet.</div>
+          : approved.map((o,i)=><OrderCard key={o.id} o={o} i={i} showActions={false}/>)}
       </div>
     </div>
   );
@@ -834,7 +932,8 @@ function Orders({ sites, showToast }) {
   const [siteId, setSiteId] = useState("");
   const [orders, setOrders] = useState([]);
   const [expanded, setExpanded] = useState(null);
-  const STATUS_OPTIONS = ["Fulfilled 100%","Fulfilled partially","Dropped","Others"];
+  const [partialData, setPartialData] = useState({}); // orderId → {fulfilledQty, pendingQty, remarks}
+  const FULFILL_OPTIONS = ["Fulfilled 100%","Fulfilled partially","Dropped","Others"];
 
   const load = () => {
     const url = siteId ? `${API_BASE}/orders?siteId=${siteId}` : `${API_BASE}/orders`;
@@ -842,40 +941,63 @@ function Orders({ sites, showToast }) {
   };
   useEffect(()=>{ load(); }, [siteId]);
 
-  const updateStatus = (id, status) => {
-    fetch(`${API_BASE}/orders/${id}`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ fulfillmentStatus:status }) })
+  const siteName = (id) => sites.find(s=>s.id===id)?.name||`Site ${id}`;
+
+  const updateFulfillment = (id, status) => {
+    const pd = partialData[id]||{};
+    fetch(`${API_BASE}/orders/${id}`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ fulfillmentStatus:status, fulfilledQty:pd.fulfilledQty!=null?Number(pd.fulfilledQty):null, pendingQty:pd.pendingQty!=null?Number(pd.pendingQty):null, fulfillmentRemarks:pd.remarks||"" }) })
       .then(()=>{ showToast("Status updated"); load(); }).catch(()=>showToast("Could not reach backend"));
   };
 
   const printOrder = (o) => {
     const w = window.open("","_blank","width=700,height=600");
-    w.document.write(`<html><body style="font-family:sans-serif;padding:24px"><h2>Order: ${o.id}</h2><p>Site ID: ${o.siteId} | Placed by: ${o.placedBy} | Date: ${new Date(o.createdAt).toLocaleDateString()}</p><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%"><tr><th>Product Code</th><th>Product Name</th><th>Qty</th><th>MRP</th></tr>${o.items?.map(it=>`<tr><td>${it.productCode}</td><td>${it.productName}</td><td>${it.qty}</td><td>₹${it.mrp}</td></tr>`).join("")}</table></body></html>`);
+    w.document.write(`<html><body style="font-family:sans-serif;padding:24px">
+      <h2>Order: ${o.id}</h2>
+      <p><b>Requestor:</b> ${o.placedBy||"—"} &nbsp;|&nbsp; <b>Approver:</b> ${o.approvedBy||"—"} &nbsp;|&nbsp; <b>Site:</b> ${siteName(o.siteId)} &nbsp;|&nbsp; <b>Date:</b> ${new Date(o.createdAt).toLocaleDateString()}</p>
+      <table border="1" cellpadding="8" style="border-collapse:collapse;width:100%">
+        <tr><th>Product Code</th><th>Product Name</th><th>Qty</th><th>MRP</th></tr>
+        ${o.items?.map(it=>`<tr><td>${it.productCode}</td><td>${it.productName}</td><td>${it.qty}</td><td>₹${it.mrp}</td></tr>`).join("")}
+      </table>
+      ${o.fulfillmentStatus?`<p><b>Fulfillment:</b> ${o.fulfillmentStatus} | Fulfilled Qty: ${o.fulfilledQty??"-"} | Pending Qty: ${o.pendingQty??"-"} | Remarks: ${o.fulfillmentRemarks||"-"}</p>`:""}
+    </body></html>`);
     w.document.close(); w.print();
   };
+
+  const exportOrder = (o) => dlExcel([
+    ...o.items.map(it=>({ "Order ID":o.id,"Requestor":o.placedBy,"Approver":o.approvedBy||"","Site":siteName(o.siteId),"Product Code":it.productCode,"Product Name":it.productName,"Qty":it.qty,"MRP":it.mrp })),
+  ], `order-${o.id}.xlsx`);
+
+  const activeOrders = orders.filter(o=>o.status==="Approved"&&!o.fulfillmentStatus);
+  const historyOrders = orders.filter(o=>o.fulfillmentStatus||o.status==="Rejected");
 
   return (
     <div>
       <div className="pd-card" style={card}>
         <SectionHeader title="ORDERS" action={
-          <select style={{ ...smInput, width:180 }} value={siteId} onChange={e=>setSiteId(e.target.value)}>
-            <option value="">All sites</option>
-            {sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <select style={{ ...smInput, width:180 }} value={siteId} onChange={e=>setSiteId(e.target.value)}>
+              <option value="">All sites</option>
+              {sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button style={{ ...btn(false), fontSize:12, padding:"7px 12px" }} onClick={()=>dlExcel(orders.map(o=>({ "Order ID":o.id,"Requestor":o.placedBy,"Approver":o.approvedBy||"","Site":siteName(o.siteId),Status:o.status,"Fulfillment":o.fulfillmentStatus||"","Date":new Date(o.createdAt).toLocaleDateString() })),"order-history.xlsx")}>⬇ History Excel</button>
+          </div>
         }/>
-        {orders.length===0
-          ? <div style={{ padding:"16px", color:C.sub, fontSize:13 }}>No orders found.</div>
-          : orders.map((o,i)=>(
+        {orders.filter(o=>!o.fulfillmentStatus&&o.status!=="Rejected").length===0
+          ? <div style={{ padding:"16px", color:C.sub, fontSize:13 }}>No active orders.</div>
+          : orders.filter(o=>!o.fulfillmentStatus&&o.status!=="Rejected").map((o,i)=>(
             <div key={o.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, marginBottom:12, overflow:"hidden" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8, padding:"12px 14px", background:i%2===0?C.panel:"#fff" }}>
                 <div>
                   <div style={{ fontWeight:700, fontSize:14 }}>{o.id}</div>
-                  <div style={{ fontSize:12, color:C.sub }}>By: {o.placedBy} · {new Date(o.createdAt).toLocaleDateString("en-IN")} {o.fulfillmentStatus && `· ${o.fulfillmentStatus}`}</div>
+                  <div style={{ fontSize:12, color:C.sub }}>
+                    Requestor: {o.placedBy||"—"} · Approver: {o.approvedBy||"Pending"} · Site: {siteName(o.siteId)} · {new Date(o.createdAt).toLocaleDateString("en-IN")}
+                  </div>
                 </div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
                   <Pill label={o.status}/>
                   <button style={{ ...btn(false), fontSize:12, padding:"6px 10px" }} onClick={()=>setExpanded(expanded===o.id?null:o.id)}>View</button>
                   <button style={{ ...btn(false), fontSize:12, padding:"6px 10px" }} onClick={()=>printOrder(o)}>PDF</button>
-                  <button style={{ ...btn(false), fontSize:12, padding:"6px 10px" }} onClick={()=>dlExcel(o.items||[],"order-"+o.id+".xlsx")}>Excel</button>
+                  <button style={{ ...btn(false), fontSize:12, padding:"6px 10px" }} onClick={()=>exportOrder(o)}>Excel</button>
                 </div>
               </div>
               {expanded===o.id && (
@@ -884,18 +1006,201 @@ function Orders({ sites, showToast }) {
                     <thead><tr>{["Product Code","Product Name","Qty","MRP"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
                     <tbody>{o.items?.map((it,j)=><tr key={it.productCode} style={trAlt(j)}><td style={td}>{it.productCode}</td><td style={{ ...td,fontWeight:600 }}>{it.productName}</td><td style={td}>{it.qty}</td><td style={td}>₹{it.mrp}</td></tr>)}</tbody>
                   </table>
-                  <div>
-                    <div style={{ fontSize:12, color:C.sub, marginBottom:6 }}>Update Fulfillment Status</div>
-                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                      {STATUS_OPTIONS.map(s=><button key={s} style={{ ...btn(o.fulfillmentStatus===s), padding:"7px 12px", fontSize:12 }} onClick={()=>updateStatus(o.id,s)}>{s}</button>)}
+                  {o.status==="Approved" && (
+                    <div>
+                      <div style={{ fontSize:12, color:C.sub, marginBottom:8, fontWeight:600 }}>Update Fulfillment Status</div>
+                      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+                        {FULFILL_OPTIONS.map(s=>(
+                          <button key={s} style={{ ...btn(false), padding:"7px 12px", fontSize:12 }} onClick={()=>{ if(s!=="Fulfilled partially"){ updateFulfillment(o.id,s); } else { setPartialData(p=>({...p,[o.id]:{...p[o.id],show:true}})); } }}>{s}</button>
+                        ))}
+                      </div>
+                      {partialData[o.id]?.show && (
+                        <div style={{ padding:"12px", background:C.amberBg, borderRadius:10, border:`1px solid ${C.amber}` }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:C.amber, marginBottom:10 }}>Partial Fulfillment Details</div>
+                          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10, marginBottom:10 }}>
+                            {[["fulfilledQty","Fulfilled Qty"],["pendingQty","Pending/Dropped Qty"]].map(([f,l])=>(
+                              <div key={f}><div style={{ fontSize:11, color:C.sub, marginBottom:4 }}>{l}</div>
+                                <input type="number" min={0} style={smInput} value={partialData[o.id]?.[f]||""} onChange={e=>setPartialData(p=>({...p,[o.id]:{...p[o.id],[f]:e.target.value}}))} placeholder="0"/>
+                              </div>
+                            ))}
+                            <div style={{ gridColumn:"1/-1" }}><div style={{ fontSize:11, color:C.sub, marginBottom:4 }}>Remarks / Reason</div>
+                              <input style={smInput} value={partialData[o.id]?.remarks||""} onChange={e=>setPartialData(p=>({...p,[o.id]:{...p[o.id],remarks:e.target.value}}))} placeholder="Reason for partial fulfillment…"/>
+                            </div>
+                          </div>
+                          <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
+                            <button style={{ ...btn(false), fontSize:12 }} onClick={()=>setPartialData(p=>({...p,[o.id]:{...p[o.id],show:false}}))}>Cancel</button>
+                            <button style={btn(true)} onClick={()=>updateFulfillment(o.id,"Fulfilled partially")}>Confirm Partial Fulfillment</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
           ))
         }
       </div>
+
+      {/* Order History */}
+      <div className="pd-card" style={card}>
+        <SectionHeader title="ORDER HISTORY" sub="Fulfilled, dropped and rejected orders"/>
+        {historyOrders.length===0
+          ? <div style={{ padding:"16px", color:C.sub, fontSize:13 }}>No historical orders yet.</div>
+          : <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr>{["Order ID","Site","Requestor","Approver","Status","Fulfillment","Fulfilled Qty","Pending Qty","Remarks","Date",""].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {historyOrders.map((o,i)=>(
+                    <tr key={o.id} style={trAlt(i)}>
+                      <td style={{ ...td, fontWeight:700 }}>{o.id}</td>
+                      <td style={td}>{siteName(o.siteId)}</td>
+                      <td style={td}>{o.placedBy}</td>
+                      <td style={td}>{o.approvedBy||"—"}</td>
+                      <td style={td}><Pill label={o.status}/></td>
+                      <td style={td}>{o.fulfillmentStatus||"—"}</td>
+                      <td style={td}>{o.fulfilledQty??"-"}</td>
+                      <td style={td}>{o.pendingQty??"-"}</td>
+                      <td style={td}>{o.fulfillmentRemarks||"—"}</td>
+                      <td style={td}>{new Date(o.createdAt).toLocaleDateString("en-IN")}</td>
+                      <td style={td}><button style={{ ...btn(false), fontSize:12, padding:"5px 8px" }} onClick={()=>exportOrder(o)}>Excel</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────
+function Reports({ sites, showToast }) {
+  const today = new Date().toISOString().slice(0,10);
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10);
+  const [activeReport, setActiveReport] = useState("inward");
+  const [startDate, setStartDate] = useState(monthStart);
+  const [endDate, setEndDate] = useState(today);
+  const [selSites, setSelSites] = useState([]);
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const toggleSite = (id) => setSelSites(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+
+  const load = () => {
+    const siteQ = selSites.length ? `&siteIds=${selSites.join(",")}` : "";
+    const url = `${API_BASE}/reports/${activeReport}?startDate=${startDate}&endDate=${endDate}${siteQ}`;
+    setLoading(true);
+    fetch(url).then(r=>r.json()).then(d=>{ setData(Array.isArray(d)?d:[]); setLoading(false); }).catch(()=>{ showToast("Could not reach backend"); setLoading(false); });
+  };
+  useEffect(()=>{ setData([]); }, [activeReport]);
+
+  const REPORTS = [
+    { key:"inward",  label:"Stock Inward Report",  icon:"📦" },
+    { key:"stock-offtake", label:"Stock Offtake Report", icon:"📉" },
+    { key:"orders",  label:"Orders Report",         icon:"🛒" },
+  ];
+
+  const summaryStats = () => {
+    if (!data.length) return [];
+    if (activeReport==="inward") return [
+      { label:"Total Inward Records", value:data.length },
+      { label:"Total Qty Inwarded", value:data.reduce((s,r)=>s+(r.qty||0),0).toLocaleString("en-IN") },
+      { label:"Unique Products", value:new Set(data.map(r=>r.productCode)).size },
+      { label:"Unique Vendors", value:new Set(data.map(r=>r.vendorName).filter(Boolean)).size },
+    ];
+    if (activeReport==="stock-offtake") return [
+      { label:"Total Products", value:data.length },
+      { label:"Total Offtake", value:data.reduce((s,r)=>s+(r.offtake||0),0).toLocaleString("en-IN") },
+      { label:"Avg Qty/Day", value:(data.reduce((s,r)=>s+(r.qtyPerDay||0),0)/Math.max(1,data.length)).toFixed(2) },
+      { label:"Days in Period", value:data[0]?.days||"-" },
+    ];
+    if (activeReport==="orders") return [
+      { label:"Total Orders", value:data.length },
+      { label:"Approved", value:data.filter(o=>o.status==="Approved").length },
+      { label:"Pending", value:data.filter(o=>o.status==="Pending Approval").length },
+      { label:"Fulfilled", value:data.filter(o=>o.fulfillmentStatus).length },
+    ];
+    return [];
+  };
+
+  const exportReport = () => {
+    if (!data.length) { showToast("No data to export"); return; }
+    let rows;
+    if (activeReport==="inward") rows = data.map(r=>({ "DC Code":r.dcCode,"Date":new Date(r.date).toLocaleDateString("en-IN"),"Vendor":r.vendorName,"Site":r.siteName,"Product Code":r.productCode,"Product Name":r.productName,"Brand":r.brand,"Category":r.category,"Sub Category":r.subCategory,"HSN Code":r.hsnCode,"MRP":r.mrp,"GST%":r.gst,"UOM":r.uom,"Weight":r.weight,"Qty Inwarded":r.qty }));
+    else if (activeReport==="stock-offtake") rows = data.map(r=>({ "Product Code":r.productCode,"Product Name":r.productName,"Brand":r.brand,"Category":r.category,"Sub Category":r.subCategory,"MRP":r.mrp,"UOM":r.uom,"Opening Stock":r.openStock,"Inwarded":r.inwarded,"Closing Stock":r.closeStock,"Offtake":r.offtake,"Days in Period":r.days,"Qty Per Day":r.qtyPerDay }));
+    else rows = data.map(r=>({ "Order ID":r.id,"Site":r.siteName,"Requestor":r.placedBy,"Approver":r.approvedBy||"","Status":r.status,"Fulfillment":r.fulfillmentStatus||"","Fulfilled Qty":r.fulfilledQty||"","Pending Qty":r.pendingQty||"","Remarks":r.fulfillmentRemarks||"","Date":new Date(r.createdAt).toLocaleDateString("en-IN") }));
+    dlExcel(rows, `${activeReport}-report-${startDate}-${endDate}.xlsx`);
+  };
+
+  const INWARD_COLS  = ["Date","DC Code","Vendor","Site","Product Code","Product Name","Brand","Category","Sub Category","Qty"];
+  const OFFTAKE_COLS = ["Product Code","Product Name","Brand","Category","MRP","Opening Stock","Inwarded","Closing Stock","Offtake","Qty/Day"];
+  const ORDERS_COLS  = ["Order ID","Site","Requestor","Approver","Status","Fulfillment","Fulfilled Qty","Date"];
+
+  return (
+    <div>
+      {/* Report selector */}
+      <div className="pd-card" style={card}>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+          {REPORTS.map(r=>(
+            <button key={r.key} onClick={()=>setActiveReport(r.key)} style={{ ...btn(activeReport===r.key), padding:"10px 16px", fontSize:13 }}>
+              {r.icon} {r.label}
+            </button>
+          ))}
+        </div>
+        {/* Filters */}
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"flex-end", marginBottom:12 }}>
+          <div><div style={{ fontSize:11, color:C.sub, marginBottom:4 }}>From Date</div><input type="date" style={{ ...smInput, width:160 }} value={startDate} onChange={e=>setStartDate(e.target.value)}/></div>
+          <div><div style={{ fontSize:11, color:C.sub, marginBottom:4 }}>To Date</div><input type="date" style={{ ...smInput, width:160 }} value={endDate} onChange={e=>setEndDate(e.target.value)}/></div>
+          <button style={btn(true)} onClick={load} disabled={loading}>{loading?"Loading…":"Generate Report"}</button>
+          {data.length>0 && <button style={{ ...btn(false), fontSize:12, padding:"9px 14px" }} onClick={exportReport}>⬇ Download Excel</button>}
+        </div>
+        <div>
+          <div style={{ fontSize:11, color:C.sub, marginBottom:6 }}>Filter by Site (optional)</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {sites.map(s=>(
+              <button key={s.id} onClick={()=>toggleSite(s.id)} style={{ ...btn(selSites.includes(s.id)), padding:"5px 12px", fontSize:12 }}>{s.name}</button>
+            ))}
+            {selSites.length>0 && <button onClick={()=>setSelSites([])} style={{ ...btn(false), padding:"5px 12px", fontSize:12, color:C.sub }}>Clear</button>}
+          </div>
+        </div>
+      </div>
+
+      {/* Summary stats */}
+      {data.length>0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10, marginBottom:14 }}>
+          {summaryStats().map(s=>(
+            <div key={s.label} className="pd-tile" style={{ background:C.panel, borderRadius:14, padding:"16px 14px", border:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:22, fontWeight:700, color:C.blue }}>{s.value}</div>
+              <div style={{ fontSize:11, color:C.sub, marginTop:4 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Data table */}
+      {data.length>0 && (
+        <div className="pd-card" style={card}>
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:600 }}>
+              <thead><tr>
+                {(activeReport==="inward"?INWARD_COLS:activeReport==="stock-offtake"?OFFTAKE_COLS:ORDERS_COLS).map(h=><th key={h} style={th}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {data.map((r,i)=>(
+                  <tr key={i} style={trAlt(i)}>
+                    {activeReport==="inward" && [new Date(r.date).toLocaleDateString("en-IN"),r.dcCode,r.vendorName,r.siteName,r.productCode,r.productName,r.brand,r.category,r.subCategory,r.qty].map((v,j)=><td key={j} style={td}>{v||"—"}</td>)}
+                    {activeReport==="stock-offtake" && [r.productCode,r.productName,r.brand,r.category,`₹${r.mrp}`,r.openStock,r.inwarded,r.closeStock,r.offtake,r.qtyPerDay].map((v,j)=><td key={j} style={{ ...td, fontWeight:j===9?700:400 }}>{v??"-"}</td>)}
+                    {activeReport==="orders" && [r.id,r.siteName,r.placedBy,r.approvedBy||"—",<Pill key="s" label={r.status}/>,r.fulfillmentStatus||"—",r.fulfilledQty??"-",new Date(r.createdAt).toLocaleDateString("en-IN")].map((v,j)=><td key={j} style={td}>{v}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {!loading && data.length===0 && <div style={{ padding:"20px 16px", color:C.sub, fontSize:13, textAlign:"center" }}>Select filters and click "Generate Report" to view data.</div>}
     </div>
   );
 }
@@ -916,7 +1221,7 @@ function Admin({ sites, setSites, vendors, setVendors, products, setProducts, st
       {subTab==="Products"       && <AdminProducts products={products} setProducts={setProducts} showToast={showToast}/>}
       {subTab==="Sites"          && <AdminSites sites={sites} setSites={setSites} showToast={showToast}/>}
       {subTab==="Vendors"        && <AdminVendors vendors={vendors} setVendors={setVendors} products={products} sites={sites} showToast={showToast}/>}
-      {subTab==="Status Definition" && <AdminStatusDef defs={statusDefs} setDefs={setStatusDefs} showToast={showToast}/>}
+      {subTab==="Status Definition" && <AdminStatusDef sites={sites} showToast={showToast}/>}
       {subTab==="User Access"    && <AdminUserAccess users={users} setUsers={setUsers} sites={sites} showToast={showToast}/>}
     </div>
   );
@@ -1298,28 +1603,59 @@ function AdminVendors({ vendors, setVendors, products, sites, showToast }) {
   );
 }
 
-// ── Admin > Status Definition ──────────────────────────────────────────────
-function AdminStatusDef({ defs, setDefs, showToast }) {
-  const [local, setLocal] = useState({ critical:{...defs.critical}, healthy:{...defs.healthy}, excessive:{...defs.excessive} });
+// ── Admin > Status Definition (site-specific) ─────────────────────────────
+function AdminStatusDef({ sites, showToast }) {
+  const EMPTY_DEFS = { critical:{from:0,to:2}, optimal:{from:2,to:7}, surplus:{from:7,to:9999} };
+  const [selSiteId, setSelSiteId] = useState("global");
+  const [local, setLocal] = useState(EMPTY_DEFS);
+  const [isCustom, setIsCustom] = useState(false);
 
-  useEffect(()=>{ setLocal({ critical:{...defs.critical}, healthy:{...defs.healthy}, excessive:{...defs.excessive} }); }, [defs]);
+  const loadDefs = (sid) => {
+    const url = sid==="global" ? `${API_BASE}/status-defs` : `${API_BASE}/status-defs?siteId=${sid}`;
+    fetch(url).then(r=>r.json()).then(d=>{
+      setIsCustom(!d.isGlobal && sid!=="global");
+      setLocal({ critical:d.critical, optimal:d.optimal||d.healthy||{from:2,to:7}, surplus:d.surplus||d.excessive||{from:7,to:9999} });
+    }).catch(()=>{});
+  };
+
+  useEffect(()=>{ loadDefs(selSiteId); }, [selSiteId]);
 
   const save = () => {
-    fetch(`${API_BASE}/status-defs`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(local) })
-      .then(r=>r.json()).then(d=>{ setDefs(d); showToast("Status definitions saved"); })
+    const payload = { ...local, ...(selSiteId!=="global" ? { siteId:Number(selSiteId) } : {}) };
+    fetch(`${API_BASE}/status-defs`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) })
+      .then(()=>{ loadDefs(selSiteId); showToast(`Status definitions saved for ${selSiteId==="global"?"Global Default":sites.find(s=>s.id===Number(selSiteId))?.name||""}`); })
+      .catch(()=>showToast("Could not reach backend"));
+  };
+
+  const resetToGlobal = () => {
+    fetch(`${API_BASE}/status-defs/${selSiteId}`, { method:"DELETE" })
+      .then(()=>{ loadDefs(selSiteId); showToast("Reset to global defaults"); })
       .catch(()=>showToast("Could not reach backend"));
   };
 
   const STATUS_DEF_ROWS = [
-    { key:"critical", label:"Critical", color:C.red, bg:C.redBg, icon:"🔴" },
-    { key:"healthy",  label:"Healthy",  color:C.green, bg:C.greenBg, icon:"🟢" },
-    { key:"excessive",label:"Excessive",color:C.blue, bg:C.blueBg, icon:"🔵" },
+    { key:"critical", label:"Critical", color:C.red,   bg:C.redBg,   icon:"🔴" },
+    { key:"optimal",  label:"Optimal",  color:C.green, bg:C.greenBg, icon:"🟢" },
+    { key:"surplus",  label:"Surplus",  color:C.blue,  bg:C.blueBg,  icon:"🔵" },
   ];
 
   return (
     <div>
       <div className="pd-card" style={card}>
-        <SectionHeader title="STATUS DEFINITION" sub="Define the day ranges for each stock status. All products will be classified based on these ranges." />
+        <SectionHeader title="STATUS DEFINITION" sub="Define day ranges per site. If a site has no custom definition, the Global Default applies." />
+        <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:16, flexWrap:"wrap" }}>
+          <div style={{ fontSize:12, color:C.sub }}>Viewing for:</div>
+          <select style={{ ...smInput, width:220 }} value={selSiteId} onChange={e=>setSelSiteId(e.target.value)}>
+            <option value="global">🌐 Global Default</option>
+            {sites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          {selSiteId!=="global" && isCustom && (
+            <span style={{ fontSize:12, color:C.blue, fontWeight:600 }}>✓ Has custom definition</span>
+          )}
+          {selSiteId!=="global" && !isCustom && (
+            <span style={{ fontSize:12, color:C.sub }}>Using global default</span>
+          )}
+        </div>
         <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:18 }}>
           {STATUS_DEF_ROWS.map(row=>(
             <div key={row.key} style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", padding:"14px 16px", background:row.bg, borderRadius:12, border:`1px solid ${row.color}30` }}>
@@ -1327,20 +1663,28 @@ function AdminStatusDef({ defs, setDefs, showToast }) {
               <div style={{ fontWeight:700, color:row.color, minWidth:80, fontSize:14 }}>{row.label}</div>
               <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                 <div style={{ fontSize:12, color:row.color }}>From (days)</div>
-                <input type="number" min={0} style={{ ...smInput, width:80, borderColor:row.color }} value={local[row.key].from}
+                <input type="number" min={0} style={{ ...smInput, width:80, borderColor:row.color }} value={local[row.key]?.from??0}
                   onChange={e=>setLocal(p=>({...p,[row.key]:{...p[row.key],from:Number(e.target.value)}}))}/>
                 <div style={{ fontSize:12, color:row.color }}>To (days)</div>
-                <input type="number" min={0} style={{ ...smInput, width:80, borderColor:row.color }} value={local[row.key].to===9999?"∞":local[row.key].to}
+                <input type="number" min={0} style={{ ...smInput, width:80, borderColor:row.color }}
+                  value={local[row.key]?.to===9999?"∞":local[row.key]?.to??9999}
                   onChange={e=>{ const v=e.target.value; setLocal(p=>({...p,[row.key]:{...p[row.key],to:v===""||v==="∞"?9999:Number(v)}})); }}
                   placeholder="∞"/>
               </div>
               <div style={{ fontSize:12, color:row.color, marginLeft:"auto" }}>
-                {local[row.key].from}–{local[row.key].to===9999?"∞":local[row.key].to} days = <b>{row.label}</b>
+                {local[row.key]?.from}–{local[row.key]?.to===9999?"∞":local[row.key]?.to} days = <b>{row.label}</b>
               </div>
             </div>
           ))}
         </div>
-        <div style={{ display:"flex", justifyContent:"flex-end" }}><button style={btn(true)} onClick={save}>Save Status Definitions</button></div>
+        <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
+          {selSiteId!=="global" && isCustom && (
+            <button style={{ ...btn(false), fontSize:12, color:C.red, borderColor:C.red+"44" }} onClick={resetToGlobal}>Reset to Global Default</button>
+          )}
+          <button style={btn(true)} onClick={save}>
+            Save for {selSiteId==="global"?"Global Default":sites.find(s=>s.id===Number(selSiteId))?.name||"Site"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1525,7 +1869,7 @@ export default function PantryDashboard() {
   const tabs = ROLE_TABS[currentUser.role] || ROLE_TABS.client;
   if (!tabs.includes(tab)) setTab(tabs[0]);
 
-  const tabIcon = { Dashboard:"📊", "Stock Inward":"📦", "Stock Update":"🔄", "Product Performance":"📈", Forecast:"🔮", "Vendiman Dashboard":"🏭", "Client Approvals":"✅", Orders:"🛒", Admin:"⚙️" };
+  const tabIcon = { Dashboard:"📊", "Stock Inward":"📦", "Stock Update":"🔄", "Product Performance":"📈", Forecast:"🔮", "Vendiman Dashboard":"🏭", "Client Approvals":"✅", Orders:"🛒", Reports:"📋", Admin:"⚙️" };
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'Segoe UI', system-ui, sans-serif", color:C.ink }}>
@@ -1587,7 +1931,8 @@ export default function PantryDashboard() {
         {tab==="Product Performance"&& <ProductPerformance sites={sites} showToast={showToast}/>}
         {tab==="Forecast"           && <Forecast sites={sites} showToast={showToast} currentUser={currentUser}/>}
         {tab==="Vendiman Dashboard" && <VendimanDashboard sites={sites} showToast={showToast}/>}
-        {tab==="Client Approvals"   && <ClientApprovals showToast={showToast} currentUser={currentUser}/>}
+        {tab==="Client Approvals"   && <ClientApprovals showToast={showToast} currentUser={currentUser} sites={sites}/>}
+        {tab==="Reports"            && <Reports sites={sites} showToast={showToast}/>}
         {tab==="Orders"             && <Orders sites={sites} showToast={showToast}/>}
         {tab==="Admin"              && <Admin sites={sites} setSites={setSites} vendors={vendors} setVendors={setVendors} products={products} setProducts={setProducts} statusDefs={statusDefs} setStatusDefs={setStatusDefs} users={users} setUsers={setUsers} showToast={showToast}/>}
       </div>
