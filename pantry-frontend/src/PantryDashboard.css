@@ -1,0 +1,186 @@
+/* ============================================================
+   Meta India — Pantry Inventory — interactive styling layer
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c7cce0;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a8aed0;
+}
+
+/* ---------------- Animations ---------------- */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translate(-50%, 16px) scale(0.96); }
+  to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+@keyframes pulseLive {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+/* ---------------- Page content transition ---------------- */
+.pd-content {
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+/* ---------------- Cards ---------------- */
+.pd-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 1px 2px rgba(20, 24, 50, 0.04);
+}
+.pd-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(40, 50, 110, 0.10);
+  border-color: #c7d0f0 !important;
+}
+
+/* ---------------- Stat / panel tiles ---------------- */
+.pd-tile {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.pd-tile:hover {
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 8px 20px rgba(40, 50, 110, 0.10);
+}
+
+/* ---------------- Buttons ---------------- */
+button {
+  transition: transform 0.12s ease, box-shadow 0.18s ease, filter 0.18s ease, opacity 0.18s ease;
+}
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  box-shadow: 0 6px 16px rgba(40, 50, 110, 0.16);
+}
+button:not(:disabled):active {
+  transform: translateY(0px) scale(0.98);
+  filter: brightness(0.97);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ---------------- Inputs / selects ---------------- */
+input, select {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+input:hover, select:hover {
+  border-color: #b9c2e8 !important;
+}
+input:focus, select:focus {
+  outline: none;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+/* ---------------- Table rows ---------------- */
+.pd-card table tbody tr {
+  transition: background 0.15s ease;
+}
+.pd-card table tbody tr:hover {
+  background: #f4f6fd;
+}
+
+/* ---------------- Tabs ---------------- */
+.pd-tab {
+  position: relative;
+  overflow: hidden;
+}
+.pd-tab::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6366f1, #0ea5e9);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
+}
+.pd-tab.pd-tab-active::after {
+  transform: scaleX(1);
+}
+.pd-tab:not(.pd-tab-active):hover {
+  background: #eef1fb !important;
+}
+
+/* ---------------- Live badge ---------------- */
+.pd-live {
+  animation: pulseLive 2.2s ease infinite;
+}
+
+/* ---------------- Toast ---------------- */
+.pd-toast {
+  animation: toastIn 0.25s ease both;
+}
+
+/* ---------------- Stock bar ---------------- */
+.pd-stockbar-fill {
+  transition: width 0.5s ease;
+}
+
+/* ---------------- Pills / tags ---------------- */
+.pd-pill, .pd-tag {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.pd-pill:hover, .pd-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(40, 50, 110, 0.12);
+}
+
+/* ---------------- Mobile responsive ---------------- */
+@media (min-width: 768px) {
+  .pd-desktopnav { display: block !important; }
+}
+
+/* Make tables scroll on mobile without breaking layout */
+.pd-card { overflow-x: auto; }
+
+/* Tighten padding on small screens */
+@media (max-width: 480px) {
+  .pd-content { padding: 12px 8px 90px !important; }
+}
+
+/* ---------------- Location / list items ---------------- */
+.pd-listitem {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.pd-listitem:hover {
+  transform: translateX(2px);
+  box-shadow: 0 6px 16px rgba(40, 50, 110, 0.08);
+}
