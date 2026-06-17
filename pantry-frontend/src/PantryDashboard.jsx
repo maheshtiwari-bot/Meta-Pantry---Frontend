@@ -97,10 +97,6 @@ function LoginScreen({ onLogin }) {
           <div style={{ fontSize:28, marginBottom:6 }}>🏢</div>
           <div style={{ fontSize:20, fontWeight:700, color:C.ink }}>Meta India Pantry</div>
           <div style={{ fontSize:13, color:C.sub }}>Sign in to continue</div>
-          <div style={{ marginTop:10, padding:"10px 14px", background:"#f0f4ff", borderRadius:10, border:"1px solid #c7d2fe", fontSize:12, color:"#4338ca", textAlign:"left" }}>
-            <b>First time?</b> Use the default admin account below to sign in, then go to <b>Admin → User Access</b> to create new users.<br/>
-            <span style={{ display:"inline-block", marginTop:6, fontFamily:"monospace", background:"#e0e7ff", padding:"3px 8px", borderRadius:6 }}>Login ID: admin &nbsp;|&nbsp; Password: admin123</span>
-          </div>
         </div>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom:14 }}>
